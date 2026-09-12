@@ -1,894 +1,912 @@
 """
 ==============================================================================
-APLICATIVO STREAMLIT: GESTÃO DE GASTOS DA REFORMA DO APARTAMENTO
-==============================================================================
-Desenvolvido em Python 3.12 e Streamlit.
-Conexão em tempo real com Supabase (PostgreSQL) via REST API com 'requests'.
-Arquivo único e autônomo (Single-File).
+APP: GESTÃO FINANCEIRA E FLUXO DE CAIXA DA REFORMA DO APARTAMENTO
+Framework: Streamlit (Python 3.12)
+Banco de Dados: Supabase (PostgreSQL via REST API / requests)
 ==============================================================================
 """
 
-from datetime import date, datetime
-import json
-import os
-from typing import Any, Dict, List, Optional
-import pandas as pd
-import requests
 import streamlit as st
+import requests
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime, timedelta, date
+from typing import List, Dict, Any, Optional
 
-# Tentar importar plotly, com fallback elegante
-try:
-    import plotly.express as px
-    import plotly.graph_objects as go
-    HAS_PLOTLY = True
-except ImportError:
-    HAS_PLOTLY = False
-
-# ==============================================================================
-# CONFIGURAÇÃO GERAL DA PÁGINA
-# ==============================================================================
+# -----------------------------------------------------------------------------
+# 1. CONFIGURAÇÃO DA PÁGINA STREAMLIT
+# -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Gestão de Gastos da Reforma",
-    page_icon="🏗️",
+    page_title="Gestão Financeira & Fluxo de Caixa da Reforma",
+    page_icon="💸",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ==============================================================================
-# CONSTANTES DE DOMÍNIO
-# ==============================================================================
-COMODOS_PADRAO = [
-    "Cozinha",
-    "Banheiro Social",
-    "Suíte",
-    "Sala",
-    "Sacada",
-    "Lavabo",
-    "Área de Serviço",
-    "Quarto 2",
-    "Geral",
+# -----------------------------------------------------------------------------
+# 2. CONSTANTES E CONDIÇÕES FIXAS DE PAGAMENTO
+# -----------------------------------------------------------------------------
+CONDICOES_PAGAMENTO: List[str] = [
+    "À vista",
+    "7 dias",
+    "14 dias",
+    "31 dias",
+    "2x",
+    "3x",
+    "4x",
+    "5x",
+    "6x",
+    "7x",
+    "8x",
+    "9x",
+    "10x",
+    "12x",
 ]
 
-CATEGORIAS_PADRAO = [
-    "Revestimento",
-    "Marcenaria",
-    "Marmoraria",
-    "Iluminação",
-    "Eletrodomésticos",
+CATEGORIAS_LISTA: List[str] = [
+    "Demolição/Alvenaria",
     "Mão de Obra",
-    "Louças/Metais",
-    "Pintura",
-    "Elétrica/Hidráulica",
+    "Revestimento",
+    "Marmoraria",
+    "Marcenaria",
     "Vidraçaria",
+    "Gesso/Drywall",
+    "Iluminação",
+    "Pintura",
+    "Louças/Metais",
+    "Eletrodomésticos",
+    "Ar Condicionado",
     "Decoração",
     "Outros",
 ]
 
-STATUS_PADRAO = ["Orçado", "Comprado", "Entregue", "Instalado"]
-
-FORMAS_PAGAMENTO_PADRAO = [
-    "Pix",
-    "Cartão de Crédito 10x",
-    "Cartão de Crédito 1x",
-    "Boleto",
-    "À Vista",
-    "Transferência Bancária",
+STATUS_LISTA: List[str] = [
+    "Orçado",
+    "Negociando",
+    "Comprado",
+    "Entregue",
+    "Instalado",
+    "Concluído",
 ]
 
-# ==============================================================================
-# TEMA E ESTILOS VISUAIS PERSONALIZADOS (MODERNO, LIMPO E ELEGANTE)
-# Tons: Azul-escuro #1E293B, Verde-esmeralda #10B981, Cinza claro #F8FAFC
-# ==============================================================================
-CUSTOM_CSS = """
-<style>
-    /* Estilos globais */
-    .stApp {
-        background-color: #F8FAFC;
-        color: #1E293B;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    }
+# Dados padrão para exibição e demonstração caso a tabela do banco esteja vazia
+DADOS_DEMO: List[Dict[str, Any]] = [
+    {
+        "id": 1,
+        "data_compra": "2025-01-10",
+        "categoria": "Revestimento",
+        "descricao": "Porcelanato Calacatta 90x90 retificado (35m²)",
+        "fornecedor": "Portobello Shop",
+        "valor_orcado": 4200.0,
+        "valor_pago": 3950.0,
+        "status": "Entregue",
+        "forma_pagamento": "10x",
+    },
+    {
+        "id": 2,
+        "data_compra": "2025-01-15",
+        "categoria": "Marmoraria",
+        "descricao": "Bancada e ilha em Granito Preto São Gabriel escovado",
+        "fornecedor": "Marmoraria Real",
+        "valor_orcado": 6500.0,
+        "valor_pago": 6500.0,
+        "status": "Instalado",
+        "forma_pagamento": "À vista",
+    },
+    {
+        "id": 3,
+        "data_compra": "2025-01-20",
+        "categoria": "Mão de Obra",
+        "descricao": "Empreiteiro - 1ª parcela de demolição e alvenaria",
+        "fornecedor": "JR Reformas e Construção",
+        "valor_orcado": 8000.0,
+        "valor_pago": 8000.0,
+        "status": "Instalado",
+        "forma_pagamento": "14 dias",
+    },
+    {
+        "id": 4,
+        "data_compra": "2025-01-25",
+        "categoria": "Louças/Metais",
+        "descricao": "Cuba esculpida e misturador monocomando Docol",
+        "fornecedor": "Leroy Merlin",
+        "valor_orcado": 1850.0,
+        "valor_pago": 1720.0,
+        "status": "Comprado",
+        "forma_pagamento": "4x",
+    },
+    {
+        "id": 5,
+        "data_compra": "2025-02-02",
+        "categoria": "Iluminação",
+        "descricao": "Perfil de LED embutido 3000K e spots direcionais",
+        "fornecedor": "Lustres & Cia",
+        "valor_orcado": 2200.0,
+        "valor_pago": 2100.0,
+        "status": "Comprado",
+        "forma_pagamento": "7 dias",
+    },
+    {
+        "id": 6,
+        "data_compra": "2025-02-05",
+        "categoria": "Marcenaria",
+        "descricao": "Armários planejados em MDF naval com amortecedores",
+        "fornecedor": "Marcenaria Design Prime",
+        "valor_orcado": 14500.0,
+        "valor_pago": 12000.0,
+        "status": "Orçado",
+        "forma_pagamento": "12x",
+    },
+    {
+        "id": 7,
+        "data_compra": "2025-02-10",
+        "categoria": "Vidraçaria",
+        "descricao": "Nivelamento e fechamento de sacada com vidro",
+        "fornecedor": "Vidraçaria Cristal",
+        "valor_orcado": 5800.0,
+        "valor_pago": 5800.0,
+        "status": "Instalado",
+        "forma_pagamento": "3x",
+    },
+    {
+        "id": 8,
+        "data_compra": "2025-02-15",
+        "categoria": "Pintura",
+        "descricao": "Tinta Suvinil Toque de Seda e massa corrida (kit reforma)",
+        "fornecedor": "Tintas & Cores",
+        "valor_orcado": 2800.0,
+        "valor_pago": 2650.0,
+        "status": "Comprado",
+        "forma_pagamento": "31 dias",
+    },
+    {
+        "id": 9,
+        "data_compra": "2025-02-25",
+        "categoria": "Eletrodomésticos",
+        "descricao": "Cooktop por indução e forno de embutir elétrico",
+        "fornecedor": "Fast Shop",
+        "valor_orcado": 3900.0,
+        "valor_pago": 3699.0,
+        "status": "Entregue",
+        "forma_pagamento": "6x",
+    },
+]
 
-    /* Top header bar */
-    .main-header {
-        background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
-        padding: 24px 30px;
-        border-radius: 14px;
-        color: #FFFFFF;
-        margin-bottom: 24px;
-        box-shadow: 0 4px 15px rgba(15, 23, 42, 0.08);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-    .main-header h1 {
-        color: #FFFFFF;
-        margin: 0;
-        font-size: 1.8rem;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-    }
-    .main-header p {
-        color: #94A3B8;
-        margin: 4px 0 0 0;
-        font-size: 0.95rem;
-    }
+# -----------------------------------------------------------------------------
+# 3. MOTOR DE CÁLCULO DE DESEMBOLSO E FLUXO DE CAIXA
+# -----------------------------------------------------------------------------
+def calcular_cronograma_desembolso(gastos: List[Dict[str, Any]]) -> pd.DataFrame:
+    """
+    Gera a projeção detalhada de cada parcela/desembolso com base na data da compra,
+    valor efetivo (ou orçado caso valor_pago seja 0) e condição de pagamento contratada.
+    Condições suportadas:
+      - 'À vista': Vence na própria data da compra
+      - '7 dias': Vence na data + 7 dias
+      - '14 dias': Vence na data + 14 dias
+      - '31 dias': Vence na data + 31 dias
+      - 'Nx' (2x a 12x): N parcelas mensais (a cada 30 dias a partir da data)
+    """
+    parcelas = []
+    
+    for g in gastos:
+        valor_base = float(g.get("valor_pago") or 0.0)
+        if valor_base <= 0:
+            valor_base = float(g.get("valor_orcado") or 0.0)
+            
+        cond = str(g.get("forma_pagamento") or "À vista").strip()
+        data_str = str(g.get("data_compra") or date.today().isoformat())
+        try:
+            dt_compra = datetime.strptime(data_str[:10], "%Y-%m-%d").date()
+        except Exception:
+            dt_compra = date.today()
+            
+        desc = g.get("descricao", "Sem descrição")
+        cat = g.get("categoria", "Geral")
+        forn = g.get("fornecedor", "Não Informado")
+        gid = g.get("id")
 
-    /* Cards de métricas */
-    .metric-container {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 16px;
-        margin-bottom: 24px;
-    }
-    .metric-card {
-        background: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
-    .metric-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 12px rgba(30, 41, 59, 0.06);
-    }
-    .metric-card .title {
-        color: #64748B;
-        font-size: 0.82rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        margin-bottom: 6px;
-    }
-    .metric-card .value {
-        color: #1E293B;
-        font-size: 1.65rem;
-        font-weight: 700;
-        margin-bottom: 6px;
-    }
-    .metric-card .badge {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 6px;
-        font-size: 0.78rem;
-        font-weight: 600;
-    }
-    .badge-positive {
-        background-color: #ECFDF5;
-        color: #10B981;
-    }
-    .badge-negative {
-        background-color: #FEF2F2;
-        color: #EF4444;
-    }
-    .badge-neutral {
-        background-color: #F1F5F9;
-        color: #475569;
-    }
+        if cond == "À vista":
+            parcelas.append({
+                "gasto_id": gid,
+                "descricao": desc,
+                "categoria": cat,
+                "fornecedor": forn,
+                "condicao": cond,
+                "parcela_num": 1,
+                "total_parcelas": 1,
+                "data_vencimento": dt_compra,
+                "mes_ano": dt_compra.strftime("%Y-%m"),
+                "valor_parcela": valor_base,
+            })
+        elif cond == "7 dias":
+            venc = dt_compra + timedelta(days=7)
+            parcelas.append({
+                "gasto_id": gid,
+                "descricao": desc,
+                "categoria": cat,
+                "fornecedor": forn,
+                "condicao": cond,
+                "parcela_num": 1,
+                "total_parcelas": 1,
+                "data_vencimento": venc,
+                "mes_ano": venc.strftime("%Y-%m"),
+                "valor_parcela": valor_base,
+            })
+        elif cond == "14 dias":
+            venc = dt_compra + timedelta(days=14)
+            parcelas.append({
+                "gasto_id": gid,
+                "descricao": desc,
+                "categoria": cat,
+                "fornecedor": forn,
+                "condicao": cond,
+                "parcela_num": 1,
+                "total_parcelas": 1,
+                "data_vencimento": venc,
+                "mes_ano": venc.strftime("%Y-%m"),
+                "valor_parcela": valor_base,
+            })
+        elif cond == "31 dias":
+            venc = dt_compra + timedelta(days=31)
+            parcelas.append({
+                "gasto_id": gid,
+                "descricao": desc,
+                "categoria": cat,
+                "fornecedor": forn,
+                "condicao": cond,
+                "parcela_num": 1,
+                "total_parcelas": 1,
+                "data_vencimento": venc,
+                "mes_ano": venc.strftime("%Y-%m"),
+                "valor_parcela": valor_base,
+            })
+        elif "x" in cond.lower():
+            # Extrai o número de parcelas (ex: 2x, 10x, 12x)
+            try:
+                num_vezes = int(cond.lower().replace("x", "").strip())
+            except Exception:
+                num_vezes = 1
 
-    /* Badges de Status */
-    .status-orcado { background: #FEF3C7; color: #D97706; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
-    .status-comprado { background: #DBEAFE; color: #2563EB; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
-    .status-entregue { background: #E0E7FF; color: #4F46E5; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
-    .status-instalado { background: #D1FAE5; color: #059669; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
+            if num_vezes < 1:
+                num_vezes = 1
 
-    /* Custom buttons and tabs styling */
-    div.stButton > button {
-        border-radius: 8px;
-        font-weight: 600;
-        border: none;
-        transition: all 0.2s;
-    }
-    div.stButton > button:first-child {
-        background-color: #10B981;
-        color: white;
-    }
-    div.stButton > button:first-child:hover {
-        background-color: #059669;
-        box-shadow: 0 4px 10px rgba(16, 185, 129, 0.25);
-    }
-</style>
-"""
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+            valor_parc = round(valor_base / num_vezes, 2)
+            sobra = round(valor_base - (valor_parc * num_vezes), 2)
 
+            for i in range(num_vezes):
+                # Deslocamento mensal aproximado de 30 dias por parcela
+                venc = dt_compra + timedelta(days=30 * i)
+                # Ajusta eventuais centavos na 1ª parcela
+                val = valor_parc + (sobra if i == 0 else 0.0)
+                parcelas.append({
+                    "gasto_id": gid,
+                    "descricao": desc,
+                    "categoria": cat,
+                    "fornecedor": forn,
+                    "condicao": cond,
+                    "parcela_num": i + 1,
+                    "total_parcelas": num_vezes,
+                    "data_vencimento": venc,
+                    "mes_ano": venc.strftime("%Y-%m"),
+                    "valor_parcela": val,
+                })
+        else:
+            # Fallback à vista
+            parcelas.append({
+                "gasto_id": gid,
+                "descricao": desc,
+                "categoria": cat,
+                "fornecedor": forn,
+                "condicao": cond,
+                "parcela_num": 1,
+                "total_parcelas": 1,
+                "data_vencimento": dt_compra,
+                "mes_ano": dt_compra.strftime("%Y-%m"),
+                "valor_parcela": valor_base,
+            })
 
-# ==============================================================================
-# CLIENTE SUPABASE REST API (VIA 'requests')
-# Conexão em tempo real e sem simulação em memória
-# ==============================================================================
+    if not parcelas:
+        return pd.DataFrame(columns=[
+            "gasto_id", "descricao", "categoria", "fornecedor", "condicao",
+            "parcela_num", "total_parcelas", "data_vencimento", "mes_ano", "valor_parcela"
+        ])
+        
+    df = pd.DataFrame(parcelas)
+    df["data_vencimento"] = pd.to_datetime(df["data_vencimento"])
+    df.sort_values(by="data_vencimento", inplace=True)
+    return df
+
+# -----------------------------------------------------------------------------
+# 4. CLIENTE SUPABASE VIA REST API (requests)
+# -----------------------------------------------------------------------------
 class SupabaseRestClient:
-    """Cliente REST API robusto para Supabase (PostgreSQL via PostgREST)."""
-
-    def __init__(self, supabase_url: str, supabase_key: str):
-        # Normalizar a URL para remover barras finais
-        self.base_url = supabase_url.rstrip("/")
-        self.api_key = supabase_key.strip()
+    def __init__(self, url: str, key: str):
+        cleaned_url = url.strip().rstrip("/")
+        if cleaned_url.endswith("/rest/v1"):
+            cleaned_url = cleaned_url[:-8]
+        self.base_url = cleaned_url
+        self.key = key.strip()
         self.endpoint = f"{self.base_url}/rest/v1/gastos_reforma"
         self.headers = {
-            "apikey": self.api_key,
-            "Authorization": f"Bearer {self.api_key}",
+            "apikey": self.key,
+            "Authorization": f"Bearer {self.key}",
             "Content-Type": "application/json",
             "Prefer": "return=representation",
         }
 
-    def is_configured(self) -> bool:
-        return bool(self.base_url and self.api_key)
-
-    def test_connection(self) -> tuple[bool, str]:
-        """Testa se a tabela e as credenciais são válidas."""
-        if not self.is_configured():
-            return False, "URL ou Chave do Supabase não configuradas."
+    def test_connection(self) -> bool:
         try:
-            url = f"{self.endpoint}?select=count"
-            headers = {**self.headers, "Range-Unit": "items", "Range": "0-0"}
-            response = requests.get(url, headers=headers, timeout=6)
-            if response.status_code in [200, 206]:
-                return True, "Conexão com o Supabase estabelecida com sucesso!"
-            elif response.status_code == 401:
-                return False, "Erro 401: Chave de API do Supabase inválida."
-            elif response.status_code == 404:
-                return False, "Erro 404: Tabela 'gastos_reforma' não encontrada no banco."
-            else:
-                return False, f"Erro HTTP {response.status_code}: {response.text}"
-        except Exception as e:
-            return False, f"Falha na requisição ao Supabase: {str(e)}"
+            res = requests.get(
+                f"{self.endpoint}?select=id&limit=1",
+                headers=self.headers,
+                timeout=5,
+            )
+            return res.status_code in [200, 206]
+        except Exception:
+            return False
 
     def get_gastos(self) -> List[Dict[str, Any]]:
-        """Busca todos os registros de gastos ordenados por data decrescente."""
-        if not self.is_configured():
-            return []
         try:
-            url = f"{self.endpoint}?select=*&order=data_compra.desc,id.desc"
-            response = requests.get(url, headers=self.headers, timeout=10)
-            if response.status_code == 200:
-                return response.json()
-            else:
-                st.error(f"Erro ao buscar dados do Supabase ({response.status_code}): {response.text}")
-                return []
-        except Exception as ex:
-            st.error(f"Erro de comunicação com o Supabase: {ex}")
+            res = requests.get(
+                f"{self.endpoint}?select=*&order=data_compra.desc,id.desc",
+                headers=self.headers,
+                timeout=8,
+            )
+            if res.status_code in [200, 206]:
+                return res.json()
+            return []
+        except Exception:
             return []
 
-    def insert_gasto(self, data: Dict[str, Any]) -> tuple[bool, str]:
-        """Insere um novo gasto na tabela 'gastos_reforma'."""
-        if not self.is_configured():
-            return False, "Supabase não configurado."
+    def create_gasto(self, payload: Dict[str, Any]) -> bool:
         try:
-            response = requests.post(
+            res = requests.post(
                 self.endpoint,
                 headers=self.headers,
-                json=data,
-                timeout=10,
+                json=payload,
+                timeout=8,
             )
-            if response.status_code in [200, 201]:
-                return True, "Gasto registrado com sucesso!"
-            else:
-                return False, f"Erro ao inserir no Supabase ({response.status_code}): {response.text}"
-        except Exception as ex:
-            return False, f"Falha de conexão: {str(ex)}"
+            return res.status_code in [200, 201]
+        except Exception:
+            return False
 
-    def update_gasto(self, gasto_id: int, data: Dict[str, Any]) -> tuple[bool, str]:
-        """Atualiza um gasto existente."""
-        if not self.is_configured():
-            return False, "Supabase não configurado."
+    def update_gasto(self, gasto_id: int, payload: Dict[str, Any]) -> bool:
         try:
-            url = f"{self.endpoint}?id=eq.{gasto_id}"
-            response = requests.patch(
-                url,
+            res = requests.patch(
+                f"{self.endpoint}?id=eq.{gasto_id}",
                 headers=self.headers,
-                json=data,
-                timeout=10,
+                json=payload,
+                timeout=8,
             )
-            if response.status_code in [200, 204]:
-                return True, f"Lançamento #{gasto_id} atualizado com sucesso!"
-            else:
-                return False, f"Erro ao atualizar ({response.status_code}): {response.text}"
-        except Exception as ex:
-            return False, f"Falha de conexão: {str(ex)}"
+            return res.status_code in [200, 204]
+        except Exception:
+            return False
 
-    def delete_gasto(self, gasto_id: int) -> tuple[bool, str]:
-        """Exclui um gasto pelo ID."""
-        if not self.is_configured():
-            return False, "Supabase não configurado."
+    def delete_gasto(self, gasto_id: int) -> bool:
         try:
-            url = f"{self.endpoint}?id=eq.{gasto_id}"
-            response = requests.delete(url, headers=self.headers, timeout=10)
-            if response.status_code in [200, 204]:
-                return True, f"Lançamento #{gasto_id} removido com sucesso!"
-            else:
-                return False, f"Erro ao excluir ({response.status_code}): {response.text}"
-        except Exception as ex:
-            return False, f"Falha de conexão: {str(ex)}"
+            res = requests.delete(
+                f"{self.endpoint}?id=eq.{gasto_id}",
+                headers=self.headers,
+                timeout=8,
+            )
+            return res.status_code in [200, 204]
+        except Exception:
+            return False
 
+# -----------------------------------------------------------------------------
+# 5. GERENCIAMENTO DE CREDENCIAIS (Secrets ou Sidebar)
+# -----------------------------------------------------------------------------
+def obter_credenciais() -> tuple[Optional[str], Optional[str]]:
+    url = None
+    key = None
+    if "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+    return url, key
 
-# ==============================================================================
-# OBTENÇÃO DE CREDENCIAIS (st.secrets OU BARRA LATERAL)
-# ==============================================================================
-def obter_credenciais() -> tuple[str, str]:
-    """Lê automaticamente de st.secrets ou variáveis de ambiente."""
-    supabase_url = ""
-    supabase_key = ""
+# -----------------------------------------------------------------------------
+# 6. ESTILO CSS REFINADO E COMPACTO
+# -----------------------------------------------------------------------------
+st.markdown(
+    """
+    <style>
+    /* Estilo refinado e compacto para cards de indicadores */
+    .metric-card-compact {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 12px 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        margin-bottom: 8px;
+    }
+    .metric-label-compact {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #64748b;
+        margin-bottom: 2px;
+    }
+    .metric-value-compact {
+        font-size: 20px;
+        font-weight: 800;
+        color: #0f172a;
+        line-height: 1.2;
+    }
+    .metric-sub-compact {
+        font-size: 11px;
+        color: #64748b;
+        margin-top: 3px;
+    }
+    .tag-condicao {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        background-color: #f1f5f9;
+        color: #334155;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-    # 1. Tentar ler de st.secrets
-    try:
-        if "SUPABASE_URL" in st.secrets:
-            supabase_url = str(st.secrets["SUPABASE_URL"])
-        if "SUPABASE_KEY" in st.secrets:
-            supabase_key = str(st.secrets["SUPABASE_KEY"])
-        elif "SUPABASE_ANON_KEY" in st.secrets:
-            supabase_key = str(st.secrets["SUPABASE_ANON_KEY"])
-    except Exception:
-        pass
+# -----------------------------------------------------------------------------
+# 7. CARREGAMENTO DOS DADOS
+# -----------------------------------------------------------------------------
+url_secret, key_secret = obter_credenciais()
 
-    # 2. Fallback para variáveis de ambiente
-    if not supabase_url:
-        supabase_url = os.getenv("SUPABASE_URL", "")
-    if not supabase_key:
-        supabase_key = os.getenv("SUPABASE_KEY", os.getenv("SUPABASE_ANON_KEY", ""))
-
-    return supabase_url, supabase_key
-
-
-# ==============================================================================
-# BARRA LATERAL - CONFIGURAÇÕES E PARÂMETROS
-# ==============================================================================
 with st.sidebar:
-    st.image(
-        "https://images.unsplash.com/photo-1513694203232-719a280e022f?w=600&auto=format&fit=crop&q=80",
-        caption="Reforma do Apartamento",
-        use_container_width=True,
-    )
     st.markdown("### ⚙️ Conexão Supabase")
-
-    env_url, env_key = obter_credenciais()
-
-    with st.expander("🔑 Credenciais do Banco", expanded=not (env_url and env_key)):
-        input_url = st.text_input(
-            "SUPABASE_URL",
-            value=env_url,
-            placeholder="https://xyzcompany.supabase.co",
-            type="default",
-            help="Sua Project URL do Supabase encontrada em Settings > API",
-        )
-        input_key = st.text_input(
-            "SUPABASE_KEY (anon/public)",
-            value=env_key,
-            placeholder="eyJhbGciOiJIUzI1NiIsIn...",
-            type="password",
-            help="Sua Chave anon/public encontrada em Settings > API",
-        )
-
-        st.caption(
-            "💡 **Dica de Deploy**: Adicione ao arquivo `.streamlit/secrets.toml`:\n"
-            "```toml\nSUPABASE_URL = 'https://...'\nSUPABASE_KEY = 'ey...'\n```"
-        )
-
-    url_final = input_url.strip() or env_url.strip()
-    key_final = input_key.strip() or env_key.strip()
-
-    client = SupabaseRestClient(url_final, key_final)
-
-    # Teste de conexão
-    if url_final and key_final:
-        connected, msg = client.test_connection()
-        if connected:
-            st.success("🟢 Supabase Conectado!")
-        else:
-            st.error(f"🔴 {msg}")
+    if url_secret and key_secret:
+        st.success("✅ Supabase configurado via Secrets!")
+        supabase_url = url_secret
+        supabase_key = key_secret
     else:
-        st.warning("⚠️ Insira suas credenciais do Supabase para sincronizar em tempo real.")
+        st.info("Insira suas credenciais abaixo ou adicione em `.streamlit/secrets.toml`:")
+        supabase_url = st.text_input("SUPABASE_URL", value="", placeholder="https://xyz.supabase.co")
+        supabase_key = st.text_input("SUPABASE_KEY", value="", type="password", placeholder="eyJhbGciOi...")
 
     st.markdown("---")
-    st.markdown("### 🎯 Teto Orçamentário Global")
+    st.markdown("### 🎯 Orçamento Global")
     teto_orcamento = st.number_input(
         "Teto da Reforma (R$)",
         min_value=0.0,
         value=80000.0,
         step=5000.0,
         format="%.2f",
-        help="Valor máximo estipulado para todo o projeto da reforma.",
+        help="Valor máximo estipulado para a conclusão da obra.",
     )
 
-    st.markdown("---")
+# Inicializa o cliente do Supabase
+client: Optional[SupabaseRestClient] = None
+is_connected = False
+
+if supabase_url and supabase_key:
+    client = SupabaseRestClient(supabase_url, supabase_key)
+    is_connected = client.test_connection()
+
+if is_connected and client:
+    raw_gastos = client.get_gastos()
+    gastos = raw_gastos if raw_gastos else DADOS_DEMO
+    fonte_status = "Supabase PostgreSQL (Tempo Real)"
+else:
+    gastos = DADOS_DEMO
+    fonte_status = "Modo Local Interativo (Demonstração)"
+
+df_gastos = pd.DataFrame(gastos)
+if not df_gastos.empty:
+    df_gastos["valor_orcado"] = pd.to_numeric(df_gastos["valor_orcado"], errors="coerce").fillna(0.0)
+    df_gastos["valor_pago"] = pd.to_numeric(df_gastos["valor_pago"], errors="coerce").fillna(0.0)
+
+# Motor de Fluxo de Caixa / Cronograma
+df_fluxo = calcular_cronograma_desembolso(gastos)
+
+# -----------------------------------------------------------------------------
+# 8. CABEÇALHO DO APLICATIVO
+# -----------------------------------------------------------------------------
+st.title("💸 Gestão Financeira & Fluxo de Caixa da Reforma")
+st.caption(f"Status da Base: **{fonte_status}** | Monitoramento de despesas e projeção futura de desembolsos.")
+
+# -----------------------------------------------------------------------------
+# 9. CARDS DE INDICADORES (COMPACTOS E SEM CÔMODO)
+# -----------------------------------------------------------------------------
+total_orcado = df_gastos["valor_orcado"].sum() if not df_gastos.empty else 0.0
+total_pago = df_gastos["valor_pago"].sum() if not df_gastos.empty else 0.0
+saldo_teto = teto_orcamento - total_pago
+percentual_teto = (total_pago / teto_orcamento * 100) if teto_orcamento > 0 else 0.0
+dif_orc_pag = total_pago - total_orcado
+
+# Desembolso futuro (parcelas a vencer a partir de hoje)
+hoje = pd.to_datetime(date.today())
+if not df_fluxo.empty:
+    desembolso_futuro = df_fluxo[df_fluxo["data_vencimento"] >= hoje]["valor_parcela"].sum()
+    desembolso_30d = df_fluxo[
+        (df_fluxo["data_vencimento"] >= hoje) & (df_fluxo["data_vencimento"] <= hoje + timedelta(days=30))
+    ]["valor_parcela"].sum()
+else:
+    desembolso_futuro = 0.0
+    desembolso_30d = 0.0
+
+col1, col2, col3, col4, col5 = st.columns(5)
+
+with col1:
     st.markdown(
-        "<div style='font-size: 0.8rem; color: #64748B; text-align: center;'>"
-        "Gestão de Reforma v2.0 • Python 3.12 & Streamlit<br>"
-        "PostgreSQL Supabase em Tempo Real"
-        "</div>",
+        f"""
+        <div class="metric-card-compact">
+            <div class="metric-label-compact">Orçamento Total</div>
+            <div class="metric-value-compact">R$ {total_orcado:,.2f}</div>
+            <div class="metric-sub-compact">Total planejado</div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
-
-# ==============================================================================
-# CARREGAMENTO DOS DADOS DO SUPABASE
-# ==============================================================================
-dados_brutos = []
-if client.is_configured():
-    dados_brutos = client.get_gastos()
-
-df = pd.DataFrame(dados_brutos)
-
-# Garantir tipos numéricos e colunas corretas caso o dataframe venha vazio
-if df.empty:
-    df = pd.DataFrame(
-        columns=[
-            "id",
-            "data_compra",
-            "comodo",
-            "categoria",
-            "descricao",
-            "fornecedor",
-            "valor_orcado",
-            "valor_pago",
-            "status",
-            "forma_pagamento",
-        ]
+with col2:
+    st.markdown(
+        f"""
+        <div class="metric-card-compact">
+            <div class="metric-label-compact">Total Contratado</div>
+            <div class="metric-value-compact" style="color: #0284c7;">R$ {total_pago:,.2f}</div>
+            <div class="metric-sub-compact">{percentual_teto:.1f}% do teto consumido</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-else:
-    df["valor_orcado"] = pd.to_numeric(df["valor_orcado"], errors="coerce").fillna(0.0)
-    df["valor_pago"] = pd.to_numeric(df["valor_pago"], errors="coerce").fillna(0.0)
-    df["diferenca"] = df["valor_pago"] - df["valor_orcado"]
 
-
-# ==============================================================================
-# CABEÇALHO PRINCIPAL
-# ==============================================================================
-st.markdown(
-    """
-    <div class="main-header">
-        <div>
-            <h1>🏗️ Gestão de Gastos da Reforma</h1>
-            <p>Controle financeiro em tempo real com Supabase (PostgreSQL)</p>
+with col3:
+    cor_saldo = "#16a34a" if saldo_teto >= 0 else "#dc2626"
+    status_saldo = "Margem disponível" if saldo_teto >= 0 else "Excesso de orçamento"
+    st.markdown(
+        f"""
+        <div class="metric-card-compact">
+            <div class="metric-label-compact">Saldo do Teto</div>
+            <div class="metric-value-compact" style="color: {cor_saldo};">R$ {saldo_teto:,.2f}</div>
+            <div class="metric-sub-compact">{status_saldo}</div>
         </div>
-        <div style="text-align: right;">
-            <span style="background: rgba(16, 185, 129, 0.2); color: #10B981; padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 0.85rem; border: 1px solid rgba(16, 185, 129, 0.4);">
-                ● Supabase Online
-            </span>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+        """,
+        unsafe_allow_html=True,
+    )
 
-# ==============================================================================
-# ABAS DE NAVEGAÇÃO
-# ==============================================================================
-aba1, aba2, aba3, aba4 = st.tabs([
-    "📊 Dashboard & Indicadores",
-    "🔍 Filtros & Lançamentos",
-    "➕ Lançar Novo Gasto",
-    "✏️ Gerenciar & Editar",
+with col4:
+    st.markdown(
+        f"""
+        <div class="metric-card-compact">
+            <div class="metric-label-compact">A Vencer (Próx. 30 dias)</div>
+            <div class="metric-value-compact" style="color: #ea580c;">R$ {desembolso_30d:,.2f}</div>
+            <div class="metric-sub-compact">Exigibilidade imediata</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with col5:
+    st.markdown(
+        f"""
+        <div class="metric-card-compact">
+            <div class="metric-label-compact">Desembolso Futuro</div>
+            <div class="metric-value-compact" style="color: #7c3aed;">R$ {desembolso_futuro:,.2f}</div>
+            <div class="metric-sub-compact">Parcelas a liquidar</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+st.markdown("---")
+
+# -----------------------------------------------------------------------------
+# 10. NAVEGAÇÃO EM ABAS
+# -----------------------------------------------------------------------------
+tab_fluxo, tab_gastos, tab_novo, tab_editar = st.tabs([
+    "📈 Fluxo de Caixa & Desembolso",
+    "📋 Lançamentos e Filtros",
+    "➕ Novo Lançamento",
+    "✏️ Gerenciar & Excluir",
 ])
 
+# =============================================================================
+# ABA 1: FLUXO DE CAIXA E DESEMBOLSO
+# =============================================================================
+with tab_fluxo:
+    st.subheader("📅 Cronograma de Desembolso Financeiro")
+    st.caption("Projeção do fluxo de saída de caixa conforme as condições de pagamento (À vista, 7d, 14d, 31d, 2x a 12x).")
 
-# ==============================================================================
-# ABA 1: DASHBOARD DE INDICADORES (VISÃO GERAL)
-# ==============================================================================
-with aba1:
-    # 1. Cálculos consolidados
-    total_orcado = float(df["valor_orcado"].sum()) if not df.empty else 0.0
-    total_pago = float(df["valor_pago"].sum()) if not df.empty else 0.0
-    saldo_teto = teto_orcamento - total_pago
-    economia_geral = total_orcado - total_pago
+    if not df_fluxo.empty:
+        # Agrupamento mensal
+        df_mensal = df_fluxo.groupby("mes_ano")["valor_parcela"].sum().reset_index()
+        df_mensal.sort_values(by="mes_ano", inplace=True)
+        df_mensal["acumulado"] = df_mensal["valor_parcela"].cumsum()
 
-    pct_utilizado = (total_pago / teto_orcamento * 100) if teto_orcamento > 0 else 0.0
+        col_g1, col_g2 = st.columns([3, 2])
 
-    # 2. Cards com Métricas Principais
-    col1, col2, col3, col4 = st.columns(4)
+        with col_g1:
+            fig_bar = px.bar(
+                df_mensal,
+                x="mes_ano",
+                y="valor_parcela",
+                text="valor_parcela",
+                title="Desembolso Previsto por Mês (R$)",
+                labels={"mes_ano": "Mês de Vencimento", "valor_parcela": "Valor (R$)"},
+                color_discrete_sequence=["#0284c7"],
+            )
+            fig_bar.update_traces(
+                texttemplate="R$ %{text:,.0f}",
+                textposition="outside",
+            )
+            fig_bar.update_layout(
+                margin=dict(l=20, r=20, t=40, b=20),
+                height=350,
+                xaxis_title="",
+                yaxis_title="Total a Pagar (R$)",
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
 
-    with col1:
-        st.markdown(
-            f"""
-            <div class="metric-card">
-                <div class="title">Orçamento Planejado</div>
-                <div class="value">R$ {total_orcado:,.2f}</div>
-                <span class="badge badge-neutral">Soma de todos orçamentos</span>
-            </div>
-            """.replace(",", "X").replace(".", ",").replace("X", "."),
-            unsafe_allow_html=True,
-        )
+        with col_g2:
+            fig_line = px.line(
+                df_mensal,
+                x="mes_ano",
+                y="acumulado",
+                markers=True,
+                title="Desembolso Acumulado ao Longo do Tempo (R$)",
+                labels={"mes_ano": "Mês", "acumulado": "Acumulado (R$)"},
+                color_discrete_sequence=["#16a34a"],
+            )
+            fig_line.add_hline(
+                y=teto_orcamento,
+                line_dash="dash",
+                line_color="#dc2626",
+                annotation_text=f"Teto: R$ {teto_orcamento:,.0f}",
+                annotation_position="top left",
+            )
+            fig_line.update_layout(
+                margin=dict(l=20, r=20, t=40, b=20),
+                height=350,
+                xaxis_title="",
+            )
+            st.plotly_chart(fig_line, use_container_width=True)
 
-    with col2:
-        st.markdown(
-            f"""
-            <div class="metric-card">
-                <div class="title">Efetivamente Pago</div>
-                <div class="value" style="color: #10B981;">R$ {total_pago:,.2f}</div>
-                <span class="badge badge-positive">{pct_utilizado:.1f}% do teto consumido</span>
-            </div>
-            """.replace(",", "X").replace(".", ",").replace("X", "."),
-            unsafe_allow_html=True,
-        )
+        st.markdown("### 🔍 Cronograma Detalhado de Parcelas a Vencer")
+        
+        # Filtros de visualização do fluxo
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            meses_disponiveis = ["Todos"] + sorted(list(df_fluxo["mes_ano"].unique()))
+            mes_sel = st.selectbox("Filtrar por Mês de Vencimento:", meses_disponiveis)
+        with col_f2:
+            status_venc = st.selectbox("Status de Vencimento:", ["Todas as Parcelas", "Apenas Vencimentos Futuros", "Vencidas/Hoje"])
 
-    with col3:
-        cor_saldo = "#10B981" if saldo_teto >= 0 else "#EF4444"
-        badge_class = "badge-positive" if saldo_teto >= 0 else "badge-negative"
-        status_saldo = "Dentro do teto" if saldo_teto >= 0 else "Teto Ultrapassado"
-        st.markdown(
-            f"""
-            <div class="metric-card">
-                <div class="title">Saldo do Teto Orçado</div>
-                <div class="value" style="color: {cor_saldo};">R$ {saldo_teto:,.2f}</div>
-                <span class="badge {badge_class}">{status_saldo} (Teto: R$ {teto_orcamento:,.2f})</span>
-            </div>
-            """.replace(",", "X").replace(".", ",").replace("X", "."),
-            unsafe_allow_html=True,
-        )
+        df_view_fluxo = df_fluxo.copy()
+        if mes_sel != "Todos":
+            df_view_fluxo = df_view_fluxo[df_view_fluxo["mes_ano"] == mes_sel]
 
-    with col4:
-        cor_econ = "#10B981" if economia_geral >= 0 else "#EF4444"
-        badge_econ = "badge-positive" if economia_geral >= 0 else "badge-negative"
-        desc_econ = "Economizado vs Orçado" if economia_geral >= 0 else "Sobrecusto vs Orçado"
-        st.markdown(
-            f"""
-            <div class="metric-card">
-                <div class="title">Economia / Variação</div>
-                <div class="value" style="color: {cor_econ};">R$ {abs(economia_geral):,.2f}</div>
-                <span class="badge {badge_econ}">{desc_econ}</span>
-            </div>
-            """.replace(",", "X").replace(".", ",").replace("X", "."),
-            unsafe_allow_html=True,
-        )
+        if status_venc == "Apenas Vencimentos Futuros":
+            df_view_fluxo = df_view_fluxo[df_view_fluxo["data_vencimento"] >= hoje]
+        elif status_venc == "Vencidas/Hoje":
+            df_view_fluxo = df_view_fluxo[df_view_fluxo["data_vencimento"] < hoje]
 
-    st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
-
-    # 3. Gráficos de barras e pizza
-    if not df.empty:
-        c_graf1, c_graf2 = st.columns(2)
-
-        # Gráfico por Cômodo (Orçado vs Pago)
-        with c_graf1:
-            st.markdown("##### 🏡 Gastos por Cômodo (Orçado vs. Pago)")
-            df_comodo = df.groupby("comodo")[["valor_orcado", "valor_pago"]].sum().reset_index()
-
-            if HAS_PLOTLY:
-                fig_comodo = go.Figure(data=[
-                    go.Bar(
-                        name="Orçado",
-                        x=df_comodo["comodo"],
-                        y=df_comodo["valor_orcado"],
-                        marker_color="#94A3B8",
-                    ),
-                    go.Bar(
-                        name="Pago",
-                        x=df_comodo["comodo"],
-                        y=df_comodo["valor_pago"],
-                        marker_color="#10B981",
-                    ),
-                ])
-                fig_comodo.update_layout(
-                    barmode="group",
-                    margin=dict(l=20, r=20, t=30, b=20),
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    font=dict(color="#1E293B"),
-                    yaxis=dict(gridcolor="#E2E8F0"),
-                )
-                st.plotly_chart(fig_comodo, use_container_width=True)
-            else:
-                st.bar_chart(df_comodo.set_index("comodo"))
-
-        # Gráfico por Categoria (Distribuição / Pizza)
-        with c_graf2:
-            st.markdown("##### 🏷️ Distribuição por Categoria (Valor Pago)")
-            df_cat = df.groupby("categoria")["valor_pago"].sum().reset_index()
-            df_cat = df_cat[df_cat["valor_pago"] > 0]
-
-            if HAS_PLOTLY and not df_cat.empty:
-                cores_personalizadas = [
-                    "#10B981", "#3B82F6", "#F59E0B", "#8B5CF6", "#EC4899",
-                    "#14B8A6", "#F97316", "#6366F1", "#84CC16", "#06B6D4"
-                ]
-                fig_cat = px.pie(
-                    df_cat,
-                    names="categoria",
-                    values="valor_pago",
-                    hole=0.45,
-                    color_discrete_sequence=cores_personalizadas,
-                )
-                fig_cat.update_layout(
-                    margin=dict(l=20, r=20, t=30, b=20),
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#1E293B"),
-                )
-                st.plotly_chart(fig_cat, use_container_width=True)
-            elif not df_cat.empty:
-                st.bar_chart(df_cat.set_index("categoria"))
-            else:
-                st.info("Nenhum valor pago registrado até o momento.")
-
-        # 4. Tabela consolidada com rolagem
-        st.markdown("##### 📋 Últimos Lançamentos Registrados")
-        df_display = df[[
-            "id", "data_compra", "comodo", "categoria", "descricao",
-            "fornecedor", "valor_orcado", "valor_pago", "status", "forma_pagamento"
+        df_exibir_fluxo = df_view_fluxo[[
+            "data_vencimento", "descricao", "categoria", "fornecedor",
+            "condicao", "parcela_num", "total_parcelas", "valor_parcela"
         ]].copy()
+        df_exibir_fluxo["data_vencimento"] = df_exibir_fluxo["data_vencimento"].dt.strftime("%d/%m/%Y")
+        df_exibir_fluxo["parcela"] = df_exibir_fluxo["parcela_num"].astype(str) + "/" + df_exibir_fluxo["total_parcelas"].astype(str)
+        df_exibir_fluxo["valor_parcela"] = df_exibir_fluxo["valor_parcela"].apply(lambda v: f"R$ {v:,.2f}")
+        df_exibir_fluxo.drop(columns=["parcela_num", "total_parcelas"], inplace=True)
+        df_exibir_fluxo.rename(columns={
+            "data_vencimento": "Data Vencimento",
+            "descricao": "Item / Serviço",
+            "categoria": "Categoria",
+            "fornecedor": "Fornecedor",
+            "condicao": "Condição",
+            "parcela": "Parcela",
+            "valor_parcela": "Valor Parcela",
+        }, inplace=True)
 
-        st.dataframe(
-            df_display.style.format({
-                "valor_orcado": "R$ {:,.2f}",
-                "valor_pago": "R$ {:,.2f}",
-            }),
-            use_container_width=True,
-            height=320,
-        )
+        st.dataframe(df_exibir_fluxo, use_container_width=True, hide_index=True)
     else:
-        st.info("💡 Nenhum lançamento encontrado no Supabase. Use a aba '➕ Lançar Novo Gasto' para começar!")
+        st.info("Nenhum lançamento cadastrado para projetar o fluxo de caixa.")
 
+# =============================================================================
+# ABA 2: LANÇAMENTOS E FILTROS
+# =============================================================================
+with tab_gastos:
+    st.subheader("📋 Tabela Consolidada de Lançamentos")
+    
+    col_s1, col_s2, col_s3 = st.columns(3)
+    with col_s1:
+        filtro_cat = st.multiselect("Filtrar Categoria:", CATEGORIAS_LISTA, default=[])
+    with col_s2:
+        filtro_status = st.multiselect("Filtrar Status:", STATUS_LISTA, default=[])
+    with col_s3:
+        filtro_cond = st.multiselect("Filtrar Condição de Pagamento:", CONDICOES_PAGAMENTO, default=[])
 
-# ==============================================================================
-# ABA 2: 🔍 FILTROS PESQUISÁVEIS E CONSULTAS
-# ==============================================================================
-with aba2:
-    st.markdown("### 🔍 Pesquisa e Filtros Avançados")
-
-    with st.expander("🔎 Painel de Filtros Detalhados", expanded=True):
-        f_col1, f_col2, f_col3, f_col4 = st.columns(4)
-
-        with f_col1:
-            comodos_disponiveis = ["Todos"] + sorted(df["comodo"].dropna().unique().tolist()) if not df.empty else ["Todos"]
-            sel_comodo = st.selectbox("Cômodo", comodos_disponiveis)
-
-        with f_col2:
-            cat_disponiveis = ["Todas"] + sorted(df["categoria"].dropna().unique().tolist()) if not df.empty else ["Todas"]
-            sel_categoria = st.selectbox("Categoria", cat_disponiveis)
-
-        with f_col3:
-            status_disponiveis = ["Todos"] + STATUS_PADRAO
-            sel_status = st.selectbox("Status", status_disponiveis)
-
-        with f_col4:
-            fornecedores = ["Todos"] + sorted([f for f in df["fornecedor"].dropna().unique().tolist() if f]) if not df.empty else ["Todos"]
-            sel_fornecedor = st.selectbox("Fornecedor", fornecedores)
-
-        busca_texto = st.text_input(
-            "Buscar por palavra-chave na descrição ou fornecedor",
-            placeholder="Ex: Porcelanato, Marmoraria, Leroy...",
-        )
-
-    # Aplicação dos filtros
-    df_filtrado = df.copy()
+    df_filtrado = df_gastos.copy()
+    if filtro_cat:
+        df_filtrado = df_filtrado[df_filtrado["categoria"].isin(filtro_cat)]
+    if filtro_status:
+        df_filtrado = df_filtrado[df_filtrado["status"].isin(filtro_status)]
+    if filtro_cond:
+        df_filtrado = df_filtrado[df_filtrado["forma_pagamento"].isin(filtro_cond)]
 
     if not df_filtrado.empty:
-        if sel_comodo != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["comodo"] == sel_comodo]
-        if sel_categoria != "Todas":
-            df_filtrado = df_filtrado[df_filtrado["categoria"] == sel_categoria]
-        if sel_status != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["status"] == sel_status]
-        if sel_fornecedor != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["fornecedor"] == sel_fornecedor]
-        if busca_texto:
-            termo = busca_texto.lower()
-            df_filtrado = df_filtrado[
-                df_filtrado["descricao"].astype(str).str.lower().str.contains(termo)
-                | df_filtrado["fornecedor"].astype(str).str.lower().str.contains(termo)
-            ]
+        df_exibicao = df_filtrado[[
+            "id", "data_compra", "categoria", "descricao", "fornecedor",
+            "forma_pagamento", "valor_orcado", "valor_pago", "status"
+        ]].copy()
+        df_exibicao["Diferença"] = df_exibicao["valor_pago"] - df_exibicao["valor_orcado"]
 
-        # Resumo dos filtrados
-        qtd_itens = len(df_filtrado)
-        sub_orcado = df_filtrado["valor_orcado"].sum()
-        sub_pago = df_filtrado["valor_pago"].sum()
-
-        st.markdown(
-            f"""
-            <div style="background: #FFFFFF; border: 1px solid #E2E8F0; padding: 12px 18px; border-radius: 8px; margin-bottom: 16px; display: flex; gap: 24px; align-items: center;">
-                <span><strong>Encontrados:</strong> {qtd_itens} itens</span>
-                <span><strong>Subtotal Orçado:</strong> R$ {sub_orcado:,.2f}</span>
-                <span><strong>Subtotal Pago:</strong> R$ {sub_pago:,.2f}</span>
-                <span><strong>Diferença:</strong> R$ {(sub_pago - sub_orcado):,.2f}</span>
-            </div>
-            """.replace(",", "X").replace(".", ",").replace("X", "."),
-            unsafe_allow_html=True,
-        )
+        # Gráfico de gastos por categoria
+        col_chart, col_empty = st.columns([2, 1])
+        with col_chart:
+            fig_cat = px.pie(
+                df_filtrado,
+                names="categoria",
+                values="valor_pago",
+                title="Distribuição de Valores por Categoria",
+                hole=0.4,
+            )
+            fig_cat.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=300)
+            st.plotly_chart(fig_cat, use_container_width=True)
 
         st.dataframe(
-            df_filtrado[[
-                "id", "data_compra", "comodo", "categoria", "descricao",
-                "fornecedor", "valor_orcado", "valor_pago", "status", "forma_pagamento"
-            ]].style.format({
+            df_exibicao.style.format({
                 "valor_orcado": "R$ {:,.2f}",
                 "valor_pago": "R$ {:,.2f}",
+                "Diferença": "R$ {:,.2f}",
             }),
             use_container_width=True,
-            height=400,
+            hide_index=True,
         )
 
-        # Botão para exportação em CSV
-        csv_data = df_filtrado.to_csv(index=False).encode("utf-8")
+        csv = df_filtrado.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Exportar Lista Filtrada (CSV)",
-            data=csv_data,
-            file_name=f"gastos_reforma_{date.today()}.csv",
+            "📥 Baixar Relatório (CSV)",
+            data=csv,
+            file_name="gastos_reforma_fluxo.csv",
             mime="text/csv",
         )
     else:
-        st.info("Nenhum registro para exibir.")
+        st.warning("Nenhum lançamento corresponde aos filtros selecionados.")
 
-
-# ==============================================================================
-# ABA 3: ➕ LANÇAR NOVO GASTO
-# ==============================================================================
-with aba3:
-    st.markdown("### ➕ Lançamento de Novo Gasto da Reforma")
-    st.caption("Cadastre despesas orçadas ou pagas diretamente no banco de dados Supabase.")
+# =============================================================================
+# ABA 3: NOVO LANÇAMENTO
+# =============================================================================
+with tab_novo:
+    st.subheader("➕ Registrar Novo Gasto ou Serviço")
+    st.caption("Insira os detalhes do item. O fluxo de desembolso futuro é calculado automaticamente a partir da condição de pagamento.")
 
     with st.form("form_novo_gasto", clear_on_submit=True):
-        col_f1, col_f2, col_f3 = st.columns(3)
+        c1, c2 = st.columns(2)
+        with c1:
+            novo_data = st.date_input("Data da Contratação / Compra", value=date.today())
+            novo_cat = st.selectbox("Categoria", CATEGORIAS_LISTA)
+            novo_fornecedor = st.text_input("Fornecedor / Prestador de Serviço", placeholder="Ex: Portobello, Vidraçaria Cristal...")
+        with c2:
+            novo_cond = st.selectbox("Condição de Pagamento (Fixa)", CONDICOES_PAGAMENTO, index=0)
+            novo_status = st.selectbox("Status Atual", STATUS_LISTA, index=0)
+            novo_desc = st.text_input("Descrição do Item / Serviço", placeholder="Ex: Porcelanato 90x90, Armários embutidos...")
 
-        with col_f1:
-            novo_comodo = st.selectbox("Cômodo *", COMODOS_PADRAO)
-            nova_categoria = st.selectbox("Categoria *", CATEGORIAS_PADRAO)
-            nova_data = st.date_input("Data da Compra / Contratação *", value=date.today())
+        c3, c4 = st.columns(2)
+        with c3:
+            novo_orcado = st.number_input("Valor Orçado (R$)", min_value=0.0, step=100.0, format="%.2f")
+        with c4:
+            novo_pago = st.number_input("Valor Efetivamente Pago / Contratado (R$)", min_value=0.0, step=100.0, format="%.2f")
 
-        with col_f2:
-            novo_status = st.selectbox("Status Atual *", STATUS_PADRAO, index=0)
-            nova_forma_pag = st.selectbox("Forma de Pagamento", FORMAS_PAGAMENTO_PADRAO)
-            novo_fornecedor = st.text_input("Fornecedor / Prestador", placeholder="Ex: Portobello, Eletricista João...")
-
-        with col_f3:
-            novo_orcado = st.number_input("Valor Orçado (R$) *", min_value=0.0, value=0.0, step=50.0, format="%.2f")
-            novo_pago = st.number_input("Valor Efetivamente Pago (R$)", min_value=0.0, value=0.0, step=50.0, format="%.2f")
-
-            # Cálculo automático em tempo real da economia/sobrecusto
-            dif_calculada = novo_pago - novo_orcado
-            if novo_orcado > 0 or novo_pago > 0:
-                if dif_calculada <= 0:
-                    st.success(f"Economia prevista: R$ {abs(dif_calculada):,.2f}")
-                else:
-                    st.error(f"Sobrecusto previsto: R$ {dif_calculada:,.2f}")
-
-        nova_descricao = st.text_area(
-            "Descrição do Item ou Serviço *",
-            placeholder="Ex: Porcelanato Portinari 120x120 para o piso da sala e cozinha...",
-            help="Descreva detalhadamente o item, medidas ou escopo contratado.",
-        )
-
-        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-        submitted = st.form_submit_button("💾 Salvar Gasto no Supabase", use_container_width=True)
-
-        if submitted:
-            # Validação dos campos obrigatórios
-            erros = []
-            if not nova_descricao.strip():
-                erros.append("A descrição do item/serviço é obrigatória.")
-            if novo_orcado <= 0 and novo_pago <= 0:
-                erros.append("Informe um valor orçado ou valor pago maior que zero.")
-
-            if erros:
-                for erro in erros:
-                    st.error(f"⚠️ {erro}")
+        # Simulação imediata de desembolso
+        if novo_pago > 0:
+            if "x" in novo_cond.lower():
+                vezes = int(novo_cond.lower().replace("x", "").strip())
+                st.info(f"💡 Simulação: {vezes} parcelas mensais de aproximadamente **R$ {novo_pago/vezes:,.2f}**.")
+            elif novo_cond in ["7 dias", "14 dias", "31 dias"]:
+                dias = int(novo_cond.split()[0])
+                st.info(f"💡 Simulação: Vencimento único em {novo_data + timedelta(days=dias)} (daqui a {dias} dias).")
             else:
-                novo_registro = {
-                    "data_compra": nova_data.strftime("%Y-%m-%d"),
-                    "comodo": novo_comodo,
-                    "categoria": nova_categoria,
-                    "descricao": nova_descricao.strip(),
+                st.info(f"💡 Simulação: Desembolso integral à vista na data {novo_data}.")
+
+        submitted = st.form_submit_button("💾 Salvar Gasto no Supabase")
+        if submitted:
+            if not novo_desc.strip():
+                st.error("Por favor, preencha a descrição do item.")
+            else:
+                payload = {
+                    "data_compra": novo_data.isoformat(),
+                    "categoria": novo_cat,
+                    "descricao": novo_desc.strip(),
                     "fornecedor": novo_fornecedor.strip() or "Não Informado",
                     "valor_orcado": float(novo_orcado),
                     "valor_pago": float(novo_pago),
                     "status": novo_status,
-                    "forma_pagamento": nova_forma_pag,
+                    "forma_pagamento": novo_cond,
                 }
-
-                with st.spinner("Salvando no Supabase..."):
-                    sucesso, msg_retorno = client.insert_gasto(novo_registro)
-
-                if sucesso:
-                    st.success(f"✅ {msg_retorno}")
-                    st.balloons()
-                    st.rerun()
-                else:
-                    st.error(f"❌ {msg_retorno}")
-
-
-# ==============================================================================
-# ABA 4: ✏️ GERENCIAR E EDITAR GASTOS
-# ==============================================================================
-with aba4:
-    st.markdown("### ✏️ Edição e Atualização de Status")
-    st.caption("Altere status de entrega/instalação, ajuste valores ou exclua registros com segurança.")
-
-    if df.empty:
-        st.info("Nenhum lançamento disponível para gerenciar.")
-    else:
-        # Opções para selecionar o gasto existente
-        opcoes_gastos = {
-            f"#{row['id']} - [{row['comodo']}] {row['descricao'][:45]}... (R$ {row['valor_pago']:,.2f})": row['id']
-            for _, row in df.iterrows()
-        }
-
-        escolha_texto = st.selectbox("Selecione o Lançamento para Editar", list(opcoes_gastos.keys()))
-        id_selecionado = opcoes_gastos[escolha_texto]
-
-        # Obter registro selecionado
-        registro_sel = df[df["id"] == id_selecionado].iloc[0]
-
-        st.markdown(f"**Editando Lançamento ID:** `#{id_selecionado}`")
-
-        with st.form("form_editar_gasto"):
-            ecol1, ecol2, ecol3 = st.columns(3)
-
-            with ecol1:
-                # Tratar índice do selectbox
-                idx_comodo = COMODOS_PADRAO.index(registro_sel["comodo"]) if registro_sel["comodo"] in COMODOS_PADRAO else 0
-                edit_comodo = st.selectbox("Cômodo", COMODOS_PADRAO, index=idx_comodo)
-
-                idx_cat = CATEGORIAS_PADRAO.index(registro_sel["categoria"]) if registro_sel["categoria"] in CATEGORIAS_PADRAO else 0
-                edit_categoria = st.selectbox("Categoria", CATEGORIAS_PADRAO, index=idx_cat)
-
-                try:
-                    data_parsed = datetime.strptime(str(registro_sel["data_compra"]), "%Y-%m-%d").date()
-                except Exception:
-                    data_parsed = date.today()
-                edit_data = st.date_input("Data da Compra", value=data_parsed)
-
-            with ecol2:
-                idx_status = STATUS_PADRAO.index(registro_sel["status"]) if registro_sel["status"] in STATUS_PADRAO else 0
-                edit_status = st.selectbox("Status", STATUS_PADRAO, index=idx_status)
-
-                idx_fp = FORMAS_PAGAMENTO_PADRAO.index(registro_sel["forma_pagamento"]) if registro_sel["forma_pagamento"] in FORMAS_PAGAMENTO_PADRAO else 0
-                edit_forma_pag = st.selectbox("Forma de Pagamento", FORMAS_PAGAMENTO_PADRAO, index=idx_fp)
-
-                edit_fornecedor = st.text_input("Fornecedor / Prestador", value=str(registro_sel["fornecedor"] or ""))
-
-            with ecol3:
-                edit_orcado = st.number_input(
-                    "Valor Orçado (R$)",
-                    min_value=0.0,
-                    value=float(registro_sel["valor_orcado"]),
-                    step=50.0,
-                    format="%.2f",
-                )
-                edit_pago = st.number_input(
-                    "Valor Pago (R$)",
-                    min_value=0.0,
-                    value=float(registro_sel["valor_pago"]),
-                    step=50.0,
-                    format="%.2f",
-                )
-                edit_dif = edit_pago - edit_orcado
-                st.caption(f"Variação calculada: R$ {edit_dif:,.2f}")
-
-            edit_descricao = st.text_area("Descrição", value=str(registro_sel["descricao"]))
-
-            salvar_alteracoes = st.form_submit_button("🔄 Atualizar no Supabase", use_container_width=True)
-
-            if salvar_alteracoes:
-                dados_atualizados = {
-                    "data_compra": edit_data.strftime("%Y-%m-%d"),
-                    "comodo": edit_comodo,
-                    "categoria": edit_categoria,
-                    "descricao": edit_descricao.strip(),
-                    "fornecedor": edit_fornecedor.strip(),
-                    "valor_orcado": float(edit_orcado),
-                    "valor_pago": float(edit_pago),
-                    "status": edit_status,
-                    "forma_pagamento": edit_forma_pag,
-                }
-                with st.spinner("Atualizando no Supabase..."):
-                    sucesso, msg = client.update_gasto(id_selecionado, dados_atualizados)
-
-                if sucesso:
-                    st.success(f"✅ {msg}")
-                    st.rerun()
-                else:
-                    st.error(f"❌ {msg}")
-
-        # Seção de exclusão segura
-        st.markdown("---")
-        with st.expander("🗑️ Área de Exclusão de Lançamento", expanded=False):
-            st.warning(f"Atenção: A exclusão do lançamento #{id_selecionado} é irreversível.")
-            confirma_exclusao = st.checkbox(f"Confirmo que desejo apagar permanentemente o registro #{id_selecionado}")
-            if st.button("🚨 Excluir Registro Definitivamente", type="secondary"):
-                if confirma_exclusao:
-                    with st.spinner("Excluindo do banco..."):
-                        sucesso, msg = client.delete_gasto(id_selecionado)
-                    if sucesso:
-                        st.success(f"✅ {msg}")
+                if is_connected and client:
+                    ok = client.create_gasto(payload)
+                    if ok:
+                        st.success("✅ Gasto registrado com sucesso no Supabase!")
                         st.rerun()
                     else:
-                        st.error(f"❌ {msg}")
+                        st.error("❌ Erro ao salvar no Supabase. Verifique as credenciais.")
                 else:
-                    st.error("Marque a caixa de confirmação para autorizar a exclusão.")
+                    payload["id"] = max([g.get("id", 0) for g in gastos] + [0]) + 1
+                    gastos.insert(0, payload)
+                    st.success("✅ Gasto adicionado no modo de demonstração!")
+                    st.rerun()
+
+# =============================================================================
+# ABA 4: GERENCIAR E EXCLUIR
+# =============================================================================
+with tab_editar:
+    st.subheader("✏️ Atualizar ou Excluir Lançamento")
+    st.caption("Selecione um lançamento existente para alterar o status, ajustar valores ou remover do banco de dados.")
+
+    if gastos:
+        opcoes_gastos = {
+            f"#{g.get('id')} - {g.get('descricao')} (R$ {float(g.get('valor_pago') or 0):,.2f} | {g.get('forma_pagamento')})": g.get("id")
+            for g in gastos
+        }
+        item_escolhido = st.selectbox("Selecione o Lançamento:", list(opcoes_gastos.keys()))
+        id_selecionado = opcoes_gastos[item_escolhido]
+        gasto_atual = next((g for g in gastos if g.get("id") == id_selecionado), None)
+
+        if gasto_atual:
+            with st.form("form_editar_gasto"):
+                e1, e2 = st.columns(2)
+                with e1:
+                    ed_cat = st.selectbox("Categoria", CATEGORIAS_LISTA, index=CATEGORIAS_LISTA.index(gasto_atual.get("categoria", CATEGORIAS_LISTA[0])) if gasto_atual.get("categoria") in CATEGORIAS_LISTA else 0)
+                    ed_desc = st.text_input("Descrição", value=gasto_atual.get("descricao", ""))
+                    ed_forn = st.text_input("Fornecedor", value=gasto_atual.get("fornecedor", ""))
+                with e2:
+                    cond_idx = CONDICOES_PAGAMENTO.index(gasto_atual.get("forma_pagamento", CONDICOES_PAGAMENTO[0])) if gasto_atual.get("forma_pagamento") in CONDICOES_PAGAMENTO else 0
+                    ed_cond = st.selectbox("Condição de Pagamento", CONDICOES_PAGAMENTO, index=cond_idx)
+                    status_idx = STATUS_LISTA.index(gasto_atual.get("status", STATUS_LISTA[0])) if gasto_atual.get("status") in STATUS_LISTA else 0
+                    ed_status = st.selectbox("Status", STATUS_LISTA, index=status_idx)
+
+                e3, e4 = st.columns(2)
+                with e3:
+                    ed_orc = st.number_input("Valor Orçado (R$)", value=float(gasto_atual.get("valor_orcado") or 0.0), step=100.0, format="%.2f")
+                with e4:
+                    ed_pag = st.number_input("Valor Pago (R$)", value=float(gasto_atual.get("valor_pago") or 0.0), step=100.0, format="%.2f")
+
+                salvar_edicao = st.form_submit_button("💾 Salvar Alterações")
+                if salvar_edicao:
+                    update_payload = {
+                        "categoria": ed_cat,
+                        "descricao": ed_desc.strip(),
+                        "fornecedor": ed_forn.strip() or "Não Informado",
+                        "forma_pagamento": ed_cond,
+                        "status": ed_status,
+                        "valor_orcado": float(ed_orc),
+                        "valor_pago": float(ed_pag),
+                    }
+                    if is_connected and client:
+                        if client.update_gasto(id_selecionado, update_payload):
+                            st.success(f"✅ Lançamento #{id_selecionado} atualizado no Supabase!")
+                            st.rerun()
+                        else:
+                            st.error("Erro ao atualizar no banco de dados.")
+                    else:
+                        gasto_atual.update(update_payload)
+                        st.success("Atualizado localmente!")
+                        st.rerun()
+
+            # Área de exclusão
+            st.markdown("---")
+            st.markdown("#### 🗑️ Excluir Registro")
+            col_d1, col_d2 = st.columns([3, 1])
+            with col_d1:
+                confirma = st.checkbox(f"Confirmo que desejo apagar permanentemente o lançamento #{id_selecionado}")
+            with col_d2:
+                if st.button("Excluir Definitivamente", type="primary", disabled=not confirma):
+                    if is_connected and client:
+                        if client.delete_gasto(id_selecionado):
+                            st.success(f"Lançamento #{id_selecionado} excluído!")
+                            st.rerun()
+                        else:
+                            st.error("Erro ao excluir do Supabase.")
+                    else:
+                        gastos.remove(gasto_atual)
+                        st.success("Excluído localmente!")
+                        st.rerun()
+    else:
+        st.info("Nenhum lançamento disponível para edição.")
