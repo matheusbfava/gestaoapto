@@ -61,6 +61,32 @@ CATEGORIAS_LISTA: List[str] = [
     "Outros",
 ]
 
+CATEGORIAS_PADRAO_LISTA: List[Dict[str, Any]] = [
+    {"id": 1, "nome": "Revestimento", "descricao": "Porcelanatos, pisos, azulejos e argamassas"},
+    {"id": 2, "nome": "Marmoraria", "descricao": "Bancadas, cubas esculpidas, ilhas e soleiras"},
+    {"id": 3, "nome": "Mão de Obra", "descricao": "Pedreiro, empreiteiro, gesseiro, encanador e eletricista"},
+    {"id": 4, "nome": "Marcenaria", "descricao": "Armários planejados de cozinha, quartos e banheiros"},
+    {"id": 5, "nome": "Vidraçaria", "descricao": "Box de banheiro, espelhos e fechamento de sacada"},
+    {"id": 6, "nome": "Louças/Metais", "descricao": "Torneiras, misturadores, bacias sanitárias e chuveiros"},
+    {"id": 7, "nome": "Iluminação", "descricao": "Perfis de LED, spots, lustres e interruptores"},
+    {"id": 8, "nome": "Pintura", "descricao": "Tintas, seladores, massa corrida e fitas"},
+    {"id": 9, "nome": "Eletrodomésticos", "descricao": "Cooktop, forno, coifa, geladeira e micro-ondas"},
+    {"id": 10, "nome": "Decoração", "descricao": "Cortinas, tapetes, papel de parede e quadros"},
+    {"id": 11, "nome": "Outros", "descricao": "Despesas gerais, caçambas, fretes e taxas"},
+]
+
+FORNECEDORES_PADRAO_LISTA: List[Dict[str, Any]] = [
+    {"id": 1, "nome": "Portobello Shop", "categoria_padrao": "Revestimento", "telefone": "(11) 98888-1111", "observacao": "Pisos e porcelanatos sala e cozinha"},
+    {"id": 2, "nome": "Marmoraria Real", "categoria_padrao": "Marmoraria", "telefone": "(11) 97777-2222", "observacao": "Granito Preto São Gabriel e Quartzo"},
+    {"id": 3, "nome": "JR Reformas e Construção", "categoria_padrao": "Mão de Obra", "telefone": "(11) 96666-3333", "observacao": "Empreiteiro responsável pela obra"},
+    {"id": 4, "nome": "Leroy Merlin", "categoria_padrao": "Louças/Metais", "telefone": "4020-5376", "observacao": "Materiais básicos, tintas e metais"},
+    {"id": 5, "nome": "Marcenaria Design Prime", "categoria_padrao": "Marcenaria", "telefone": "(11) 95555-4444", "observacao": "Mobiliário planejado"},
+    {"id": 6, "nome": "Vidraçaria Cristal", "categoria_padrao": "Vidraçaria", "telefone": "(11) 94444-5555", "observacao": "Box e envidraçamento de sacada"},
+    {"id": 7, "nome": "Lustres & Cia", "categoria_padrao": "Iluminação", "telefone": "(11) 93333-6666", "observacao": "Perfis e luminárias técnicas"},
+    {"id": 8, "nome": "Tintas & Cores", "categoria_padrao": "Pintura", "telefone": "(11) 92222-7777", "observacao": "Suvinil e complementos"},
+    {"id": 9, "nome": "Fast Shop", "categoria_padrao": "Eletrodomésticos", "telefone": "0800-726-8300", "observacao": "Eletros de embutir"},
+]
+
 STATUS_LISTA: List[str] = [
     "Orçado",
     "Negociando",
@@ -328,6 +354,8 @@ class SupabaseRestClient:
         self.base_url = cleaned_url
         self.key = key.strip()
         self.endpoint = f"{self.base_url}/rest/v1/gastos_reforma"
+        self.endpoint_categorias = f"{self.base_url}/rest/v1/categorias_gastos"
+        self.endpoint_fornecedores = f"{self.base_url}/rest/v1/fornecedores_reforma"
         self.headers = {
             "apikey": self.key,
             "Authorization": f"Bearer {self.key}",
@@ -399,6 +427,104 @@ class SupabaseRestClient:
             # PostgREST permite deleção em massa com filtro correspondente a todos os registros
             res = requests.delete(
                 f"{self.endpoint}?id=gte.0",
+                headers=self.headers,
+                timeout=8,
+            )
+            return res.status_code in [200, 204]
+        except Exception:
+            return False
+
+    # --- CATEGORIAS CRUD ---
+    def get_categorias(self) -> List[Dict[str, Any]]:
+        try:
+            res = requests.get(
+                f"{self.endpoint_categorias}?select=*&order=nome.asc",
+                headers=self.headers,
+                timeout=8,
+            )
+            if res.status_code in [200, 206]:
+                return res.json()
+            return []
+        except Exception:
+            return []
+
+    def create_categoria(self, payload: Dict[str, Any]) -> bool:
+        try:
+            res = requests.post(
+                self.endpoint_categorias,
+                headers=self.headers,
+                json=payload,
+                timeout=8,
+            )
+            return res.status_code in [200, 201]
+        except Exception:
+            return False
+
+    def update_categoria(self, cat_id: int, payload: Dict[str, Any]) -> bool:
+        try:
+            res = requests.patch(
+                f"{self.endpoint_categorias}?id=eq.{cat_id}",
+                headers=self.headers,
+                json=payload,
+                timeout=8,
+            )
+            return res.status_code in [200, 204]
+        except Exception:
+            return False
+
+    def delete_categoria(self, cat_id: int) -> bool:
+        try:
+            res = requests.delete(
+                f"{self.endpoint_categorias}?id=eq.{cat_id}",
+                headers=self.headers,
+                timeout=8,
+            )
+            return res.status_code in [200, 204]
+        except Exception:
+            return False
+
+    # --- FORNECEDORES CRUD ---
+    def get_fornecedores(self) -> List[Dict[str, Any]]:
+        try:
+            res = requests.get(
+                f"{self.endpoint_fornecedores}?select=*&order=nome.asc",
+                headers=self.headers,
+                timeout=8,
+            )
+            if res.status_code in [200, 206]:
+                return res.json()
+            return []
+        except Exception:
+            return []
+
+    def create_fornecedor(self, payload: Dict[str, Any]) -> bool:
+        try:
+            res = requests.post(
+                self.endpoint_fornecedores,
+                headers=self.headers,
+                json=payload,
+                timeout=8,
+            )
+            return res.status_code in [200, 201]
+        except Exception:
+            return False
+
+    def update_fornecedor(self, forn_id: int, payload: Dict[str, Any]) -> bool:
+        try:
+            res = requests.patch(
+                f"{self.endpoint_fornecedores}?id=eq.{forn_id}",
+                headers=self.headers,
+                json=payload,
+                timeout=8,
+            )
+            return res.status_code in [200, 204]
+        except Exception:
+            return False
+
+    def delete_fornecedor(self, forn_id: int) -> bool:
+        try:
+            res = requests.delete(
+                f"{self.endpoint_fornecedores}?id=eq.{forn_id}",
                 headers=self.headers,
                 timeout=8,
             )
@@ -504,12 +630,34 @@ if is_connected and client:
     raw_gastos = client.get_gastos()
     # Se retornou lista do Supabase (mesmo que vazia []), respeitamos a base do usuário!
     gastos = raw_gastos if raw_gastos is not None else []
+
+    raw_cats = client.get_categorias()
+    categorias = raw_cats if (raw_cats is not None and len(raw_cats) > 0) else [dict(c) for c in CATEGORIAS_PADRAO_LISTA]
+
+    raw_forns = client.get_fornecedores()
+    fornecedores = raw_forns if (raw_forns is not None and len(raw_forns) > 0) else [dict(f) for f in FORNECEDORES_PADRAO_LISTA]
+
     fonte_status = "Supabase PostgreSQL (Tempo Real)"
 else:
     if "gastos_local" not in st.session_state:
         st.session_state["gastos_local"] = [dict(d) for d in DADOS_DEMO]
     gastos = st.session_state["gastos_local"]
+
+    if "categorias_local" not in st.session_state:
+        st.session_state["categorias_local"] = [dict(c) for c in CATEGORIAS_PADRAO_LISTA]
+    categorias = st.session_state["categorias_local"]
+
+    if "fornecedores_local" not in st.session_state:
+        st.session_state["fornecedores_local"] = [dict(f) for f in FORNECEDORES_PADRAO_LISTA]
+    fornecedores = st.session_state["fornecedores_local"]
+
     fonte_status = "Modo Local Interativo (Demonstração)"
+
+nomes_categorias = [c.get("nome", "") for c in categorias if c.get("nome")]
+if not nomes_categorias:
+    nomes_categorias = CATEGORIAS_LISTA
+
+nomes_fornecedores = [f.get("nome", "") for f in fornecedores if f.get("nome")]
 
 COLUNAS_GASTOS = [
     "id", "data_compra", "categoria", "descricao", "fornecedor",
@@ -623,10 +771,11 @@ st.markdown("---")
 # -----------------------------------------------------------------------------
 # 10. NAVEGAÇÃO EM ABAS
 # -----------------------------------------------------------------------------
-tab_fluxo, tab_gastos, tab_novo, tab_editar = st.tabs([
+tab_fluxo, tab_gastos, tab_novo, tab_cadastros, tab_editar = st.tabs([
     "📈 Fluxo de Caixa & Desembolso",
     "📋 Lançamentos e Filtros",
     "➕ Novo Lançamento",
+    "🏷️ Categorias & Fornecedores",
     "✏️ Gerenciar & Excluir",
 ])
 
@@ -740,7 +889,7 @@ with tab_gastos:
     
     col_s1, col_s2, col_s3 = st.columns(3)
     with col_s1:
-        filtro_cat = st.multiselect("Filtrar Categoria:", CATEGORIAS_LISTA, default=[])
+        filtro_cat = st.multiselect("Filtrar Categoria:", nomes_categorias, default=[])
     with col_s2:
         filtro_status = st.multiselect("Filtrar Status:", STATUS_LISTA, default=[])
     with col_s3:
@@ -805,8 +954,10 @@ with tab_novo:
         c1, c2 = st.columns(2)
         with c1:
             novo_data = st.date_input("Data da Contratação / Compra", value=date.today())
-            novo_cat = st.selectbox("Categoria", CATEGORIAS_LISTA)
+            novo_cat = st.selectbox("Categoria *", nomes_categorias)
             novo_fornecedor = st.text_input("Fornecedor / Prestador de Serviço", placeholder="Ex: Portobello, Vidraçaria Cristal...")
+            if nomes_fornecedores:
+                st.caption(f"💡 Cadastrados: {', '.join(nomes_fornecedores[:6])}...")
         with c2:
             novo_cond = st.selectbox("Condição de Pagamento (Fixa)", CONDICOES_PAGAMENTO, index=0)
             novo_status = st.selectbox("Status Atual", STATUS_LISTA, index=0)
@@ -859,7 +1010,187 @@ with tab_novo:
                     st.rerun()
 
 # =============================================================================
-# ABA 4: GERENCIAR E EXCLUIR
+# ABA 4: GERENCIAR CATEGORIAS E FORNECEDORES
+# =============================================================================
+with tab_cadastros:
+    st.subheader("🏷️ Gestão de Categorias e Fornecedores")
+    st.caption("Gerencie as tabelas auxiliares para padronizar despesas e manter o cadastro organizado no Supabase.")
+
+    sub_c1, sub_c2 = st.tabs(["🏷️ Categorias de Gastos", "🏢 Fornecedores & Prestadores"])
+
+    with sub_c1:
+        st.markdown("#### Categorias Cadastradas")
+        cats_table = []
+        for c in categorias:
+            c_nome = c.get("nome", "")
+            c_gastos = [g for g in gastos if g.get("categoria") == c_nome]
+            total_cat = sum(float(g.get("valor_pago") or 0) for g in c_gastos)
+            cats_table.append({
+                "ID": c.get("id"),
+                "Nome": c_nome,
+                "Descrição": c.get("descricao", "") or "-",
+                "Lançamentos Vinculados": len(c_gastos),
+                "Total Pago": f"R$ {total_cat:,.2f}",
+            })
+        if cats_table:
+            st.dataframe(pd.DataFrame(cats_table), use_container_width=True, hide_index=True)
+
+        col_c_nova, col_c_alterar = st.columns(2)
+        with col_c_nova:
+            st.markdown("##### ➕ Nova Categoria")
+            with st.form("form_nova_categoria", clear_on_submit=True):
+                n_cat_nome = st.text_input("Nome da Categoria *", placeholder="Ex: Automação Residencial")
+                n_cat_desc = st.text_input("Descrição / Finalidade", placeholder="Ex: Equipamentos de domótica e sonorização")
+                sub_n_cat = st.form_submit_button("Salvar Categoria")
+                if sub_n_cat:
+                    if not n_cat_nome.strip():
+                        st.error("O nome da categoria é obrigatório.")
+                    else:
+                        cat_payload = {"nome": n_cat_nome.strip(), "descricao": n_cat_desc.strip()}
+                        if is_connected and client:
+                            if client.create_categoria(cat_payload):
+                                st.success(f"Categoria '{n_cat_nome}' salva no Supabase!")
+                                st.rerun()
+                            else:
+                                st.error("Erro ao salvar categoria no Supabase.")
+                        else:
+                            next_cid = max([c.get("id", 0) for c in categorias] + [0]) + 1
+                            cat_payload["id"] = next_cid
+                            st.session_state["categorias_local"].append(cat_payload)
+                            st.success(f"Categoria '{n_cat_nome}' adicionada localmente!")
+                            st.rerun()
+
+        with col_c_alterar:
+            st.markdown("##### ✏️ Editar / Excluir Categoria")
+            if categorias:
+                c_sel = st.selectbox("Selecione a categoria:", [c.get("nome") for c in categorias], key="sb_edit_cat")
+                c_selecionada = next((c for c in categorias if c.get("nome") == c_sel), None)
+                if c_selecionada:
+                    with st.form("form_edit_cat_detalhe"):
+                        e_c_nome = st.text_input("Nome", value=c_selecionada.get("nome", ""))
+                        e_c_desc = st.text_input("Descrição", value=c_selecionada.get("descricao", "") or "")
+                        salvar_c = st.form_submit_button("💾 Salvar Alterações")
+                        if salvar_c:
+                            up_cat = {"nome": e_c_nome.strip(), "descricao": e_c_desc.strip()}
+                            if is_connected and client:
+                                if client.update_categoria(c_selecionada["id"], up_cat):
+                                    st.success("Categoria atualizada no Supabase!")
+                                    st.rerun()
+                                else:
+                                    st.error("Erro ao atualizar categoria.")
+                            else:
+                                c_selecionada.update(up_cat)
+                                st.success("Categoria atualizada localmente!")
+                                st.rerun()
+
+                    if st.button(f"🗑️ Excluir Categoria '{c_sel}'", key="btn_del_cat_final"):
+                        if is_connected and client:
+                            if client.delete_categoria(c_selecionada["id"]):
+                                st.success("Categoria excluída do Supabase!")
+                                st.rerun()
+                            else:
+                                st.error("Erro ao excluir categoria do Supabase.")
+                        else:
+                            st.session_state["categorias_local"] = [c for c in st.session_state["categorias_local"] if c.get("id") != c_selecionada.get("id")]
+                            st.success("Categoria excluída localmente!")
+                            st.rerun()
+
+    with sub_c2:
+        st.markdown("#### Fornecedores e Prestadores Cadastrados")
+        forns_table = []
+        for f in fornecedores:
+            f_nome = f.get("nome", "")
+            f_gastos = [g for g in gastos if g.get("fornecedor") == f_nome]
+            total_forn = sum(float(g.get("valor_pago") or 0) for g in f_gastos)
+            forns_table.append({
+                "ID": f.get("id"),
+                "Nome": f_nome,
+                "Categoria Padrão": f.get("categoria_padrao", "") or "-",
+                "Telefone": f.get("telefone", "") or "-",
+                "Observação": f.get("observacao", "") or "-",
+                "Compras": len(f_gastos),
+                "Total Contratado": f"R$ {total_forn:,.2f}",
+            })
+        if forns_table:
+            st.dataframe(pd.DataFrame(forns_table), use_container_width=True, hide_index=True)
+
+        col_f_nova, col_f_alterar = st.columns(2)
+        with col_f_nova:
+            st.markdown("##### ➕ Novo Fornecedor")
+            with st.form("form_novo_fornecedor", clear_on_submit=True):
+                n_f_nome = st.text_input("Nome do Fornecedor / Empresa *", placeholder="Ex: Marmoraria Real")
+                n_f_cat = st.selectbox("Categoria Principal", nomes_categorias, key="novo_forn_cat_select")
+                n_f_tel = st.text_input("Telefone / WhatsApp", placeholder="(11) 98888-7777")
+                n_f_obs = st.text_input("Observações", placeholder="Ex: Contato Carlos, desconto no PIX")
+                sub_n_forn = st.form_submit_button("Salvar Fornecedor")
+                if sub_n_forn:
+                    if not n_f_nome.strip():
+                        st.error("O nome do fornecedor é obrigatório.")
+                    else:
+                        forn_payload = {
+                            "nome": n_f_nome.strip(),
+                            "categoria_padrao": n_f_cat,
+                            "telefone": n_f_tel.strip(),
+                            "observacao": n_f_obs.strip(),
+                        }
+                        if is_connected and client:
+                            if client.create_fornecedor(forn_payload):
+                                st.success(f"Fornecedor '{n_f_nome}' salvo no Supabase!")
+                                st.rerun()
+                            else:
+                                st.error("Erro ao salvar fornecedor no Supabase.")
+                        else:
+                            next_fid = max([f.get("id", 0) for f in fornecedores] + [0]) + 1
+                            forn_payload["id"] = next_fid
+                            st.session_state["fornecedores_local"].append(forn_payload)
+                            st.success(f"Fornecedor '{n_f_nome}' cadastrado localmente!")
+                            st.rerun()
+
+        with col_f_alterar:
+            st.markdown("##### ✏️ Editar / Excluir Fornecedor")
+            if fornecedores:
+                f_sel = st.selectbox("Selecione o fornecedor:", [f.get("nome") for f in fornecedores], key="sb_edit_forn")
+                f_selecionado = next((f for f in fornecedores if f.get("nome") == f_sel), None)
+                if f_selecionado:
+                    with st.form("form_edit_forn_detalhe"):
+                        e_f_nome = st.text_input("Nome", value=f_selecionado.get("nome", ""))
+                        cat_idx = nomes_categorias.index(f_selecionado.get("categoria_padrao", nomes_categorias[0])) if f_selecionado.get("categoria_padrao") in nomes_categorias else 0
+                        e_f_cat = st.selectbox("Categoria Principal", nomes_categorias, index=cat_idx, key="edit_forn_cat_select")
+                        e_f_tel = st.text_input("Telefone", value=f_selecionado.get("telefone", "") or "")
+                        e_f_obs = st.text_input("Observações", value=f_selecionado.get("observacao", "") or "")
+                        salvar_f = st.form_submit_button("💾 Salvar Alterações")
+                        if salvar_f:
+                            up_forn = {
+                                "nome": e_f_nome.strip(),
+                                "categoria_padrao": e_f_cat,
+                                "telefone": e_f_tel.strip(),
+                                "observacao": e_f_obs.strip(),
+                            }
+                            if is_connected and client:
+                                if client.update_fornecedor(f_selecionado["id"], up_forn):
+                                    st.success("Fornecedor atualizado no Supabase!")
+                                    st.rerun()
+                                else:
+                                    st.error("Erro ao atualizar fornecedor.")
+                            else:
+                                f_selecionado.update(up_forn)
+                                st.success("Fornecedor atualizado localmente!")
+                                st.rerun()
+
+                    if st.button(f"🗑️ Excluir Fornecedor '{f_sel}'", key="btn_del_forn_final"):
+                        if is_connected and client:
+                            if client.delete_fornecedor(f_selecionado["id"]):
+                                st.success("Fornecedor excluído do Supabase!")
+                                st.rerun()
+                            else:
+                                st.error("Erro ao excluir fornecedor do Supabase.")
+                        else:
+                            st.session_state["fornecedores_local"] = [f for f in st.session_state["fornecedores_local"] if f.get("id") != f_selecionado.get("id")]
+                            st.success("Fornecedor excluído localmente!")
+                            st.rerun()
+
+# =============================================================================
+# ABA 5: GERENCIAR E EXCLUIR
 # =============================================================================
 with tab_editar:
     st.subheader("✏️ Atualizar ou Excluir Lançamentos")
@@ -878,7 +1209,8 @@ with tab_editar:
             with st.form("form_editar_gasto"):
                 e1, e2 = st.columns(2)
                 with e1:
-                    ed_cat = st.selectbox("Categoria", CATEGORIAS_LISTA, index=CATEGORIAS_LISTA.index(gasto_atual.get("categoria", CATEGORIAS_LISTA[0])) if gasto_atual.get("categoria") in CATEGORIAS_LISTA else 0)
+                    cat_idx_ed = nomes_categorias.index(gasto_atual.get("categoria", nomes_categorias[0])) if gasto_atual.get("categoria") in nomes_categorias else 0
+                    ed_cat = st.selectbox("Categoria", nomes_categorias, index=cat_idx_ed)
                     ed_desc = st.text_input("Descrição", value=gasto_atual.get("descricao", ""))
                     ed_forn = st.text_input("Fornecedor", value=gasto_atual.get("fornecedor", ""))
                 with e2:
