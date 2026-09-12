@@ -394,6 +394,18 @@ class SupabaseRestClient:
         except Exception:
             return False
 
+    def delete_all_gastos(self) -> bool:
+        try:
+            # PostgREST permite deleção em massa com filtro correspondente a todos os registros
+            res = requests.delete(
+                f"{self.endpoint}?id=gte.0",
+                headers=self.headers,
+                timeout=8,
+            )
+            return res.status_code in [200, 204]
+        except Exception:
+            return False
+
 # -----------------------------------------------------------------------------
 # 5. GERENCIAMENTO DE CREDENCIAIS (Secrets ou Sidebar)
 # -----------------------------------------------------------------------------
@@ -490,16 +502,28 @@ if supabase_url and supabase_key:
 
 if is_connected and client:
     raw_gastos = client.get_gastos()
-    gastos = raw_gastos if raw_gastos else DADOS_DEMO
+    # Se retornou lista do Supabase (mesmo que vazia []), respeitamos a base do usuário!
+    gastos = raw_gastos if raw_gastos is not None else []
     fonte_status = "Supabase PostgreSQL (Tempo Real)"
 else:
-    gastos = DADOS_DEMO
+    if "gastos_local" not in st.session_state:
+        st.session_state["gastos_local"] = [dict(d) for d in DADOS_DEMO]
+    gastos = st.session_state["gastos_local"]
     fonte_status = "Modo Local Interativo (Demonstração)"
 
+COLUNAS_GASTOS = [
+    "id", "data_compra", "categoria", "descricao", "fornecedor",
+    "valor_orcado", "valor_pago", "status", "forma_pagamento"
+]
 df_gastos = pd.DataFrame(gastos)
+for col in COLUNAS_GASTOS:
+    if col not in df_gastos.columns:
+        df_gastos[col] = pd.Series(dtype="object" if col in ["categoria", "descricao", "fornecedor", "status", "forma_pagamento", "data_compra"] else "float64")
+
 if not df_gastos.empty:
     df_gastos["valor_orcado"] = pd.to_numeric(df_gastos["valor_orcado"], errors="coerce").fillna(0.0)
     df_gastos["valor_pago"] = pd.to_numeric(df_gastos["valor_pago"], errors="coerce").fillna(0.0)
+
 
 # Motor de Fluxo de Caixa / Cronograma
 df_fluxo = calcular_cronograma_desembolso(gastos)
@@ -829,7 +853,8 @@ with tab_novo:
                         st.error("❌ Erro ao salvar no Supabase. Verifique as credenciais.")
                 else:
                     payload["id"] = max([g.get("id", 0) for g in gastos] + [0]) + 1
-                    gastos.insert(0, payload)
+                    if "gastos_local" in st.session_state:
+                        st.session_state["gastos_local"].insert(0, payload)
                     st.success("✅ Gasto adicionado no modo de demonstração!")
                     st.rerun()
 
@@ -837,8 +862,8 @@ with tab_novo:
 # ABA 4: GERENCIAR E EXCLUIR
 # =============================================================================
 with tab_editar:
-    st.subheader("✏️ Atualizar ou Excluir Lançamento")
-    st.caption("Selecione um lançamento existente para alterar o status, ajustar valores ou remover do banco de dados.")
+    st.subheader("✏️ Atualizar ou Excluir Lançamentos")
+    st.caption("Selecione um lançamento existente para alterar o status, ajustar valores ou remover da base de dados.")
 
     if gastos:
         opcoes_gastos = {
@@ -887,12 +912,17 @@ with tab_editar:
                             st.error("Erro ao atualizar no banco de dados.")
                     else:
                         gasto_atual.update(update_payload)
+                        if "gastos_local" in st.session_state:
+                            for idx, item in enumerate(st.session_state["gastos_local"]):
+                                if item.get("id") == id_selecionado:
+                                    st.session_state["gastos_local"][idx].update(update_payload)
+                                    break
                         st.success("Atualizado localmente!")
                         st.rerun()
 
-            # Área de exclusão
+            # Área de exclusão individual
             st.markdown("---")
-            st.markdown("#### 🗑️ Excluir Registro")
+            st.markdown("#### 🗑️ Excluir Registro Individual")
             col_d1, col_d2 = st.columns([3, 1])
             with col_d1:
                 confirma = st.checkbox(f"Confirmo que desejo apagar permanentemente o lançamento #{id_selecionado}")
@@ -900,13 +930,45 @@ with tab_editar:
                 if st.button("Excluir Definitivamente", type="primary", disabled=not confirma):
                     if is_connected and client:
                         if client.delete_gasto(id_selecionado):
-                            st.success(f"Lançamento #{id_selecionado} excluído!")
+                            st.success(f"Lançamento #{id_selecionado} excluído do Supabase!")
                             st.rerun()
                         else:
                             st.error("Erro ao excluir do Supabase.")
                     else:
-                        gastos.remove(gasto_atual)
+                        if "gastos_local" in st.session_state:
+                            st.session_state["gastos_local"] = [
+                                g for g in st.session_state["gastos_local"] if g.get("id") != id_selecionado
+                            ]
                         st.success("Excluído localmente!")
                         st.rerun()
+
+        # Área de Zerar Base Completa
+        st.markdown("---")
+        st.markdown("#### 🧨 Zerar Toda a Base de Dados (Começar do Zero)")
+        st.caption("Remove permanentemente **TODOS** os lançamentos para que você possa cadastrar suas despesas reais do zero.")
+        col_z1, col_z2 = st.columns([3, 1])
+        with col_z1:
+            confirma_tudo = st.checkbox(f"Confirmo que desejo apagar TODOS os {len(gastos)} lançamentos e começar do zero")
+        with col_z2:
+            if st.button("Zerar Todos os Gastos", type="secondary", disabled=not confirma_tudo):
+                if is_connected and client:
+                    if client.delete_all_gastos():
+                        st.success("Base de dados do Supabase limpa com sucesso (0 registros)!")
+                        st.rerun()
+                    else:
+                        st.error("Erro ao limpar dados do Supabase. Você também pode rodar `TRUNCATE TABLE public.gastos_reforma;` no SQL Editor do Supabase.")
+                else:
+                    st.session_state["gastos_local"] = []
+                    st.success("Base local limpa com sucesso (0 registros)!")
+                    st.rerun()
     else:
-        st.info("Nenhum lançamento disponível para edição.")
+        st.info("ℹ️ Nenhum lançamento cadastrado no momento. A base está completamente limpa (0 registros) e pronta para receber seus gastos reais!")
+        col_v1, col_v2 = st.columns(2)
+        with col_v1:
+            st.markdown("👉 Acesse a aba **➕ Novo Lançamento** para cadastrar seu primeiro gasto da reforma.")
+        with col_v2:
+            if not is_connected:
+                if st.button("Restaurar Dados de Exemplo (Demonstração)"):
+                    st.session_state["gastos_local"] = [dict(d) for d in DADOS_DEMO]
+                    st.rerun()
+
